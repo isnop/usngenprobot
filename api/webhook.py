@@ -6,16 +6,19 @@ from http.server import BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
+# Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Ambil Token dari Environment Variable Vercel
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# --- 🛠️ SOLUSI: GLOBAL STATE ---
-# Kamus ini akan menyimpan data user selama server Vercel masih menyala.
+# =================================================================
+# 🛠️ SOLUSI SERVERLESS: GLOBAL STATE (Pengganti context.user_data)
+# =================================================================
 USER_STATE = {}
 
-# --- FUNGSI ALGORITMA ---
+# --- FUNGSI ALGORITMA (Tetap Sama) ---
 def generate_sop(word):
     results = []
     for i in range(len(word)):
@@ -42,8 +45,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Bot ini akan membantu Anda membuat berbagai variasi username "
         "berdasarkan kata dasar yang Anda masukkan.\n\n"
         "<b>Dua metode yang tersedia:</b>\n"
-        "📄 <b>SOP</b> — menduplikasi huruf pada kata.\n"
-        "➕ <b>TAMHUR</b> — menyisipkan huruf a-z di tiap posisi.\n\n"
+        "📄 <b>SOP</b> — menduplikasi huruf pada kata (cepat, varian sedikit).\n"
+        "➕ <b>TAMHUR</b> — menyisipkan huruf a-z di tiap posisi (varian banyak).\n\n"
         "Klik tombol di bawah untuk memulai 👇"
     )
     if update.message:
@@ -55,9 +58,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    
+    # Ambil user_id dan pastikan inisialisasi state-nya
     user_id = query.from_user.id
-
-    # Pastikan user punya tempat penyimpanan di global state
     if user_id not in USER_STATE:
         USER_STATE[user_id] = {}
 
@@ -69,21 +72,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             "<b>Bikin Varian 🪄</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<b>📄 SOP — Duplikasi Huruf</b>\n"
+            "Setiap huruf <b>diduplikasi</b> tepat di posisinya.\n"
+            "Hasil: sepanjang kata + 1 huruf.\n"
+            "Contoh <code>ikan</code>:\n"
+            "  <code>iikan, ikkan, ikaan, ikann</code>\n"
+            "▶ 4 varian per kata.\n\n"
+            "<b>➕ TAMHUR — Tambah Huruf a-z</b>\n"
+            "Huruf <b>a–z</b> disisipkan di setiap posisi (depan, tengah, belakang).\n"
+            "Contoh <code>ikan</code>:\n"
+            "  <code>aikan, bikan, ..., zikan</code>\n"
+            "  <code>iakan, ibkan, ..., izkan</code> ... dst.\n"
+            "▶ 26 × (panjang+1) varian per kata.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             "Pilih metode di bawah 👇"
         )
         await query.edit_message_text(text, parse_mode='HTML', reply_markup=markup)
 
     elif data in ["method_sop", "method_tamhur"]:
         method = "sop" if data == "method_sop" else "tamhur"
-        # Simpan method ke global state
+        
+        # Simpan metode ke USER_STATE
         USER_STATE[user_id]['method'] = method
         
-        info = "📄 <b>SOP</b>" if method == "sop" else "➕ <b>TAMHUR</b>"
-        text = f"{info} dipilih.\n\nSilakan kirim daftar username Anda (satu per baris, maksimal 10 username).\nContoh:\n<code>ikan\nayam</code>"
+        if method == "sop":
+            info = (
+                "<b>📄 SOP — Duplikasi Huruf</b>\n"
+                "Setiap huruf <b>diduplikasi</b> di posisinya.\n"
+                "Contoh: <code>ikan</code> ➔ <code>iikan, ikkan, ikaan, ikann</code>."
+            )
+        else:
+            info = (
+                "<b>➕ TAMHUR — Tambah Huruf a-z</b>\n"
+                "Setiap huruf a-z <b>disisipkan</b> di tiap posisi.\n"
+                "Contoh: <code>ikan</code> ➔ <code>aikan...zikan, iakan...izkan</code>."
+            )
+        text = f"{info}\n\nSilakan kirim daftar username Anda (satu per baris, maksimal 10 username).\nContoh:\n<code>ikan\nayam</code>"
         await query.message.reply_text(text, parse_mode='HTML')
 
     elif data == "generate_now":
-        # Cek apakah data ada di global state
+        # Cek data di USER_STATE
         if 'words' in USER_STATE[user_id] and 'method' in USER_STATE[user_id]:
             words = USER_STATE[user_id]['words']
             method = USER_STATE[user_id]['method']
@@ -92,14 +120,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             all_results = []
             for word in words:
-                variants = generate_sop(word) if method == 'sop' else generate_tamhur(word)
+                if method == 'sop':
+                    variants = generate_sop(word)
+                else:
+                    variants = generate_tamhur(word)
+                
                 all_results.append(f"<b>Kata Dasar: {word}</b>")
                 all_results.extend(variants)
                 all_results.append("")
             
             final_text = "\n".join(all_results)
             if len(final_text) > 4000:
-                final_text = final_text[:4000] + "\n\n... (Hasil terpotong)"
+                final_text = final_text[:4000] + "\n\n... (Hasil terpotong karena terlalu panjang)"
                 
             markup = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Buat Ulang", callback_data="bikin_varian")]
@@ -109,39 +141,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='HTML',
                 reply_markup=markup
             )
-            # Hapus data 'words' setelah dipakai (opsional)
+            # Hapus words setelah dipakai
             del USER_STATE[user_id]['words']
         else:
-            # Jaga-jaga kalau Vercel beneran mati/cold start
+            # Jaga-jaga kalau Vercel beneran restart
             await query.edit_message_text("⚠️ Sesi Anda telah berakhir. Silakan ketik /start untuk memulai lagi.")
 
 async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
-    # Cek dari global state
+    # Cek dari USER_STATE
     if user_id not in USER_STATE or 'method' not in USER_STATE[user_id]:
         await update.message.reply_text("⚠️ Silakan ketik /start untuk memulai.")
         return
-
+        
     lines = [line.strip().lower() for line in text.split('\n') if line.strip()]
     
     if len(lines) == 0:
-        return await update.message.reply_text("❌ Format salah.")
+        await update.message.reply_text("❌ Format salah. Kirimkan teks biasa.")
+        return
     if len(lines) > 10:
-        return await update.message.reply_text("❌ Maksimal 10 username.")
-        
+        await update.message.reply_text("❌ Maksimal 10 username dalam satu waktu.")
+        return
     for line in lines:
         if not line.isalpha():
-            return await update.message.reply_text(f"❌ '{line}' tidak valid. Hanya huruf a-z.")
+            await update.message.reply_text(f"❌ Username '{line}' tidak valid. Hanya boleh huruf a-z (tanpa spasi/angka).")
+            return
 
-    # Simpan words ke global state
+    # Simpan words ke USER_STATE
     USER_STATE[user_id]['words'] = lines
     
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🪄 Generate Sekarang", callback_data="generate_now")]
     ])
-    
     preview = "\n".join(lines)
     await update.message.reply_text(
         f"📝 <b>Daftar Username:</b>\n<code>{preview}</code>\n\nKlik tombol di bawah untuk memproses.",
@@ -152,6 +185,7 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- FUNGSI SERVERLESS VERCEL ---
 async def process_update(update_data: dict):
     app = Application.builder().token(TOKEN).build()
+    
     app.add_handler(CommandHandler(["start", "help"], start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_input))
