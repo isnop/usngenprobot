@@ -126,7 +126,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     variants = generate_tamhur(word)
                 
                 all_results.append(f"<b>Kata Dasar: {word}</b>")
-                all_results.extend(variants)
+                all_results.extend(f"@{v}" for v in variants)
                 all_results.append("")
             
             final_text = "\n".join(all_results)
